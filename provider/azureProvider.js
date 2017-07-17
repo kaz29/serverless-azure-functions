@@ -24,6 +24,7 @@ let functionsAdminKey;
 let invocationId;
 let principalCredentials;
 let functionsFolder;
+let sourceFolder;
 let existingFunctionApp = false;
 const deployedFunctionNames = [];
 
@@ -48,6 +49,7 @@ class AzureProvider {
       resourceGroupName = `${functionAppName}-rg`;
       deploymentName = `${resourceGroupName}-deployment`;
       functionsFolder = path.join(this.serverless.config.servicePath, 'functions');
+      sourceFolder = path.join(this.serverless.config.servicePath, 'src');
 
       resolve();
     });
@@ -533,14 +535,15 @@ class AzureProvider {
     });
   }
 
-  uploadPackageJson () {
-    const packageJsonFilePath = path.join(this.serverless.config.servicePath, 'package.json');
-    this.serverless.cli.log('Uploading pacakge.json...');
-    const requestUrl = `https://${functionAppName}${config.scmVfsPath}package.json`;
-    const options = {
+  uploadComposerJson () {
+    this.serverless.cli.log('Uploading composer files...');
+
+    const composerJsonFilePath = path.join(this.serverless.config.servicePath, 'composer.json');
+    const requestUrlComposerJson = `https://${functionAppName}${config.scmVfsPath}composer.json`;
+    const optionsComposerJson = {
       host: functionAppName + config.scmDomain,
       method: 'put',
-      url: requestUrl,
+      url: requestUrlComposerJson,
       json: true,
       headers: {
         Authorization: config.bearer + principalCredentials.tokenCache._entries[0].accessToken,
@@ -548,21 +551,53 @@ class AzureProvider {
       }
     };
 
-    return new BbPromise((resolve, reject) => {
-      if (fs.existsSync(packageJsonFilePath)) {
-        fs.createReadStream(packageJsonFilePath)
-        .pipe(request.put(options, (err) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve('Package.json file uploaded');
-          }
-        }));
+    const composerLockFilePath = path.join(this.serverless.config.servicePath, 'composer.lock');
+    const requestUrlComposerLock = `https://${functionAppName}${config.scmVfsPath}composer.lock`;
+    const optionsComposerLock = {
+      host: functionAppName + config.scmDomain,
+      method: 'put',
+      url: requestUrlComposerLock,
+      json: true,
+      headers: {
+        Authorization: config.bearer + principalCredentials.tokenCache._entries[0].accessToken,
+        Accept: '*/*'
       }
-      else {
-        resolve('Package.json file does not exist');
-      }
-    });
+    };
+
+    return BbPromise.all([
+      new BbPromise((resolve, reject) => {
+        this.serverless.cli.log('Uploading composer.json...');
+        if (fs.existsSync(composerJsonFilePath)) {
+          fs.createReadStream(composerJsonFilePath)
+            .pipe(request.put(optionsComposerJson, (err) => {
+              if (err) {
+                reject(err);
+              } else {
+                resolve('composer.json file uploaded');
+              }
+            }));
+        }
+        else {
+          resolve('composer.json file does not exist');
+        }
+      }),
+      new BbPromise((resolve, reject) => {
+        this.serverless.cli.log('Uploading composer.lock...');
+        if (fs.existsSync(composerLockFilePath)) {
+          fs.createReadStream(composerLockFilePath)
+            .pipe(request.put(optionsComposerLock, (err) => {
+              if (err) {
+                reject(err);
+              } else {
+                resolve('composer.lock file uploaded');
+              }
+            }));
+        }
+        else {
+          resolve('composer.lock file does not exist');
+        }
+      })
+    ]);
   }
 
   createZipObjectAndUploadFunction (functionName, entryPoint, filePath, params) {
@@ -578,7 +613,7 @@ class AzureProvider {
       if (!fs.existsSync(folderForJSFunction)) {
         fs.mkdirSync(folderForJSFunction);
       }
-      fse.copySync(handlerPath, path.join(folderForJSFunction, 'index.js'));
+      fse.copySync(handlerPath, path.join(folderForJSFunction, 'run.php'));
       const functionJSON = params.functionsJson;
 
       functionJSON.entryPoint = entryPoint;
@@ -603,6 +638,38 @@ class AzureProvider {
                 reject(uploadZipErr);
               } else {
                 fse.removeSync(functionZipFile);
+                resolve(uploadZipResponse);
+              }
+            }));
+        }
+      });
+    });
+  }
+
+  createZipObjectAndUploadSource () {
+    return new BbPromise((resolve, reject) => {
+      this.serverless.cli.log(`Packaging source files`);
+
+      const sourceZipFile = path.join(functionsFolder, 'src.zip');
+      zipFolder(sourceFolder, sourceZipFile, function (createZipErr) {
+        if (createZipErr) {
+          reject(createZipErr);
+        } else {
+          const requestUrl = `https://${functionAppName}${config.scmZipApiPath}/src/`;
+          const options = {
+            url: requestUrl,
+            headers: {
+              Authorization: config.bearer + principalCredentials.tokenCache._entries[0].accessToken,
+              Accept: '*/*'
+            }
+          };
+
+          fs.createReadStream(sourceZipFile)
+            .pipe(request.put(options, (uploadZipErr, uploadZipResponse) => {
+              if (uploadZipErr) {
+                reject(uploadZipErr);
+              } else {
+                fse.removeSync(sourceZipFile);
                 resolve(uploadZipResponse);
               }
             }));

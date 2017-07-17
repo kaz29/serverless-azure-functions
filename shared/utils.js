@@ -96,7 +96,6 @@ module.exports = {
 
     const entryPointAndHandlerPath = this.getEntryPointAndHandlerPath(handler);
     const metaData = {
-      entryPoint: entryPointAndHandlerPath[constants.entryPoint],
       handlerPath: entryPointAndHandlerPath.handlerPath,
       params: params
     };
@@ -128,17 +127,8 @@ module.exports = {
   },
 
   'getEntryPointAndHandlerPath': function (handler) {
-    let handlerPath = 'handler.js';
-    let entryPoint = handler;
-    const handlerSplit = handler.split('.');
-
-    if (handlerSplit.length > 1) {
-      entryPoint = handlerSplit[handlerSplit.length - 1];
-      handlerPath = `${handler.substring(0, handler.lastIndexOf('.'))}.js`;
-    }
     const metaData = {
-      entryPoint: entryPoint,
-      handlerPath: handlerPath
+      handlerPath: handler
     };
 
     return metaData;
@@ -149,10 +139,7 @@ module.exports = {
 
     binding[constants.type] = 'http';
     binding[constants.direction] = constants.outDirection;
-    binding[constants.name] = '$return';
-    if (bindingUserSettings[constants.webHookType]) {
-      binding[constants.name] = 'res';
-    }
+    binding[constants.name] = 'res';
 
     return binding;
   },
